@@ -19,25 +19,38 @@ export async function createThread({
   communityId,
   path,
 }: Params) {
-  connectToDB()
   try {
+    connectToDB()
+
+    const communityIdObject = await Community.findOne(
+      { id: communityId },
+      { _id: 1 }
+    )
+
     const createdThread = await Thread.create({
       text,
       author,
-      community: null,
+      community: communityIdObject, // Assign communityId if provided, or leave it null for personal account
     })
 
-    // Create thread above and then attach it to the user who created it.
+    // Update User model
     await User.findByIdAndUpdate(author, {
       $push: { threads: createdThread._id },
     })
 
+    if (communityIdObject) {
+      // Update Community model
+      await Community.findByIdAndUpdate(communityIdObject, {
+        $push: { threads: createdThread._id },
+      })
+    }
+
     revalidatePath(path)
   } catch (error: any) {
-    throw new Error(`Error creating thrad: ${error.message}`)
+    throw new Error(`Failed to create thread: ${error.message}`)
   }
 }
-// pageNumber = 1, pageSize = 20
+
 export async function fetchThreads(pageNumber = 1, pageSize = 20) {
   try {
     connectToDB()
@@ -74,30 +87,36 @@ export async function fetchThreads(pageNumber = 1, pageSize = 20) {
   }
 }
 
-export async function fetchThreadById(id: string) {
+export async function fetchThreadById(threadId: string) {
   connectToDB()
+
   try {
-    const thread = await Thread.findById(id)
+    const thread = await Thread.findById(threadId)
       .populate({
         path: 'author',
         model: User,
         select: '_id id name image',
-      })
+      }) // Populate the author field with _id and username
       .populate({
-        path: 'children',
+        path: 'community',
+        model: Community,
+        select: '_id id name image',
+      }) // Populate the community field with _id and name
+      .populate({
+        path: 'children', // Populate the children field
         populate: [
           {
-            path: 'author',
+            path: 'author', // Populate the author field within children
             model: User,
-            select: '_id id name parentId image',
+            select: '_id id name parentId image', // Select only _id and username fields of the author
           },
           {
-            path: 'children',
-            model: Thread,
+            path: 'children', // Populate the children field within children
+            model: Thread, // The model of the nested children (assuming it's the same "Thread" model)
             populate: {
-              path: 'author',
+              path: 'author', // Populate the author field within nested children
               model: User,
-              select: '_id id name parentId image',
+              select: '_id id name parentId image', // Select only _id and username fields of the author
             },
           },
         ],
